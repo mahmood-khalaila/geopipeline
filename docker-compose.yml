@@ -1,0 +1,36 @@
+services:
+
+  postgis:
+    image: postgis/postgis:16-3.4
+
+    environment:
+      POSTGRES_DB: geopipeline
+      POSTGRES_USER: geopipeline
+      POSTGRES_PASSWORD: geopipeline
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geopipeline -d geopipeline"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  geopipeline:
+    build: .
+
+    environment:
+      DATABASE_URL: postgresql://geopipeline:geopipeline@postgis:5432/geopipeline
+
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+
+volumes:
+  postgis_data:

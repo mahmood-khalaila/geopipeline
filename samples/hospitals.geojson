@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Galilee Medical Center",
+        "city": "Nahariya"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [35.112, 33.008]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Rambam Health Care Campus",
+        "city": "Haifa"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [34.985, 32.834]
+      }
+    }
+  ]
+}
+
