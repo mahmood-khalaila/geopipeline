@@ -1,9 +1,11 @@
+
+#values
 geopipeline:
   image:
     repository: ghcr.io/mahmood-khalaila/geopipeline
     tag: "25de82519923b329d4eac533e6e9ccbbfc5ae987"
 
-  backoffLimit: 3
+  backoffLimit: 4
 
 
 
