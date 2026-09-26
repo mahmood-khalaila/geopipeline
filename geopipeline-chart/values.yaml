@@ -1,0 +1,21 @@
+geopipeline:
+  image:
+    repository: ghcr.io/mahmood-khalaila/geopipeline
+    tag: "25de82519923b329d4eac533e6e9ccbbfc5ae987"
+
+  backoffLimit: 3
+
+
+
+postgis:
+  database: geopipeline
+  username: geopipeline
+  existingSecret: postgis-secret
+  port: 5432
+
+  image:
+    repository: postgis/postgis
+    tag: "16-3.4"
+
+  storage:
+    size: 1Gi

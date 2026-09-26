@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+
+metadata:
+  name: geopipeline
+
+spec:
+  backoffLimit: 3
+
+  template:
+    metadata:
+      labels:
+        app: geopipeline
+
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: geopipeline
+          image: ghcr.io/mahmood-khalaila/geopipeline:25de82519923b329d4eac533e6e9ccbbfc5ae987
+
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgis-secret
+                  key: DATABASE_URL

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: StatefulSet
+
+metadata:
+  name: postgis
+
+spec:
+  serviceName: postgis
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: postgis
+
+  template:
+    metadata:
+      labels:
+        app: postgis
+
+    spec:
+      containers:
+        - name: postgis
+          image: "{{ .Values.postgis.image.repository }}:{{ .Values.postgis.image.tag }}"
+
+          ports:
+            - containerPort: {{ .Values.postgis.port }}
+
+          envFrom:
+            - secretRef:
+                name: postgis-secret
+
+          volumeMounts:
+            - name: postgis-storage
+              mountPath: /var/lib/postgresql/data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: postgis-storage
+
+      spec:
+        accessModes:
+          - ReadWriteOnce
+
+        resources:
+          requests:
+            storage: {{ .Values.postgis.storage.size }}
