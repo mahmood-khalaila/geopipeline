@@ -426,10 +426,7 @@ resource "aws_iam_role" "github_actions" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:mahmood-khalaila/geopipeline:*"
+          "token.actions.githubusercontent.com:sub" = "repo:mahmood-khalaila/geopipeline:ref:refs/heads/main"
         }
       }
     }]
