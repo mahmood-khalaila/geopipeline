@@ -60,6 +60,8 @@ jobs:
 
             console.log("OIDC aud:", payload.aud);
             console.log("OIDC sub:", payload.sub);
+            console.log("OIDC iss:", payload.iss);
+
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
