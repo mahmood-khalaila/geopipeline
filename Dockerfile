@@ -1,12 +1,9 @@
-FROM python:3.12-slim
+FROM public.ecr.aws/lambda/python:3.12
 
-WORKDIR /app
-
-COPY requirements.txt .
+COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/ ./src/
-COPY samples/ ./samples/
+COPY src/ ${LAMBDA_TASK_ROOT}/src/
 
-CMD ["python", "-m", "src.process_file", "samples/hospitals.geojson"]
+CMD ["src.lambda_handler.handler"]
