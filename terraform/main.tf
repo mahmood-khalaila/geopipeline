@@ -119,6 +119,13 @@ resource "aws_security_group" "processor" {
   name        = "geopipeline-processor-sg"
   description = "Security group for GeoPipeline processor"
   vpc_id      = aws_vpc.geopipeline.id
+  egress {
+  description = "Allow outbound traffic"
+  from_port   = 0
+  to_port     = 0
+  protocol    = "-1"
+  cidr_blocks = ["0.0.0.0/0"]
+}
 
   tags = {
     Name = "geopipeline-processor-sg"
@@ -362,4 +369,26 @@ resource "aws_vpc_endpoint" "secretsmanager" {
   tags = {
     Name = "geopipeline-secretsmanager-endpoint"
   }
+}
+
+resource "aws_lambda_permission" "allow_s3" {
+  statement_id  = "AllowExecutionFromS3Bucket"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.processor.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.ingest.arn
+}
+
+resource "aws_s3_bucket_notification" "ingest" {
+  bucket = aws_s3_bucket.ingest.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.processor.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_suffix       = ".geojson"
+  }
+
+  depends_on = [
+    aws_lambda_permission.allow_s3
+  ]
 }

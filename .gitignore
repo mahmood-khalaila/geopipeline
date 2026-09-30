@@ -9,3 +9,6 @@ __pycache__/
 *.tfstate
 *.tfstate.*
 *.tfvars
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*

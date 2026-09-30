@@ -1,5 +1,6 @@
 import tempfile
 import urllib.parse
+from pathlib import Path
 
 import boto3
 
@@ -20,7 +21,8 @@ def handler(event, context):
 
     with tempfile.NamedTemporaryFile(suffix=".geojson") as tmp:
         s3.download_file(bucket, key, tmp.name)
-        features = load_and_validate(tmp.name)
+
+        features = load_and_validate(Path(tmp.name))
 
         with connect() as connection:
             initialize_database(connection)
