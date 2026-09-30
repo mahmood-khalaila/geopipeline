@@ -1,4 +1,4 @@
-name: GeoPipeline CI
+name: GeoPipeline CI/CD
 
 on:
   push:
@@ -11,7 +11,12 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: geopipeline-processor
+  LAMBDA_FUNCTION: geopipeline-processor
 
 jobs:
   test:
@@ -32,18 +37,48 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+
+  deploy:
+    needs: test
+
+    # Deploy only after push/merge to main, not on pull requests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          role-to-assume: ${{ secrets.AWS_GITHUB_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           docker build \
-            -t ghcr.io/${{ github.repository }}:${{ github.sha }} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }} \
             .
 
-      - name: Push Docker image
-        run: docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+      - name: Push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push \
+            $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+
+      - name: Update Lambda
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          aws lambda update-function-code \
+            --function-name $LAMBDA_FUNCTION \
+            --image-uri $ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}

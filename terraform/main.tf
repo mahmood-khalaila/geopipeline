@@ -120,12 +120,12 @@ resource "aws_security_group" "processor" {
   description = "Security group for GeoPipeline processor"
   vpc_id      = aws_vpc.geopipeline.id
   egress {
-  description = "Allow outbound traffic"
-  from_port   = 0
-  to_port     = 0
-  protocol    = "-1"
-  cidr_blocks = ["0.0.0.0/0"]
-}
+    description = "Allow outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = {
     Name = "geopipeline-processor-sg"
@@ -277,7 +277,7 @@ resource "aws_lambda_function" "processor" {
 
   role         = aws_iam_role.processor.arn
   package_type = "Image"
-  image_uri    = "${aws_ecr_repository.processor.repository_url}:latest"
+  image_uri = "${aws_ecr_repository.processor.repository_url}:v2"
 
   timeout     = 60
   memory_size = 1024
@@ -391,4 +391,106 @@ resource "aws_s3_bucket_notification" "ingest" {
   depends_on = [
     aws_lambda_permission.allow_s3
   ]
+}
+
+# GitHub Actions OIDC Provider
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = [
+    "sts.amazonaws.com"
+  ]
+
+  tags = {
+    Name = "github-actions-oidc"
+  }
+}
+
+
+# IAM Role used by GitHub Actions
+resource "aws_iam_role" "github_actions" {
+  name = "geopipeline-github-actions-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+
+      Action = "sts:AssumeRoleWithWebIdentity"
+
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+        }
+
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:mahmood-khalaila/geopipeline:*"
+        }
+      }
+    }]
+  })
+
+  tags = {
+    Name = "geopipeline-github-actions-role"
+  }
+}
+
+
+# Permissions GitHub needs for ECR + Lambda deployment
+resource "aws_iam_role_policy" "github_actions" {
+  name = "geopipeline-github-actions-policy"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Effect = "Allow"
+
+        Action = [
+          "ecr:GetAuthorizationToken"
+        ]
+
+        Resource = "*"
+      },
+
+      {
+        Effect = "Allow"
+
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage"
+        ]
+
+        Resource = aws_ecr_repository.processor.arn
+      },
+
+      {
+        Effect = "Allow"
+
+        Action = [
+          "lambda:UpdateFunctionCode",
+          "lambda:GetFunction"
+        ]
+
+        Resource = aws_lambda_function.processor.arn
+      }
+    ]
+  })
+}
+
+
+output "github_actions_role_arn" {
+  value = aws_iam_role.github_actions.arn
 }
