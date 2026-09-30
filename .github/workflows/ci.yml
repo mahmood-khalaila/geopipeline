@@ -49,18 +49,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Debug OIDC claims
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const token = await core.getIDToken('sts.amazonaws.com');
-            const payload = JSON.parse(
-              Buffer.from(token.split('.')[1], 'base64url').toString()
-            );
-
-            console.log("OIDC aud:", payload.aud);
-            console.log("OIDC sub:", payload.sub);
-            console.log("OIDC iss:", payload.iss);
+      
 
 
       - name: Configure AWS credentials
