@@ -1,0 +1,51 @@
+MAP
+  NAME "hospitals"
+  STATUS ON
+  SIZE 800 600
+  EXTENT 34 29 36 34
+  UNITS DD
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  SYMBOL
+    NAME "circle"
+    TYPE ELLIPSE
+    FILLED TRUE
+    POINTS
+      1 1
+    END
+  END
+
+  WEB
+    METADATA
+      "ows_enable_request" "*"
+      "wms_title" "GeoPipeline Hospitals"
+      "wms_srs" "EPSG:4326"
+    END
+  END
+
+  LAYER
+    NAME "hospitals"
+    TYPE POINT
+    STATUS ON
+
+    CONNECTIONTYPE POSTGIS
+    CONNECTION "service=geopipeline"
+
+    DATA "geometry FROM locations USING UNIQUE id USING SRID=4326"
+
+    PROJECTION
+      "init=epsg:4326"
+    END
+
+    CLASS
+      STYLE
+        SYMBOL "circle"
+        COLOR 255 0 0
+        SIZE 12
+      END
+    END
+  END
+END

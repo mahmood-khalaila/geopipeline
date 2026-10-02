@@ -137,12 +137,22 @@ resource "aws_security_group" "rds" {
   description = "Allow PostgreSQL only from GeoPipeline processor"
   vpc_id      = aws_vpc.geopipeline.id
 
+  # Lambda / Processor → RDS
   ingress {
     description     = "PostgreSQL from processor"
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.processor.id]
+  }
+
+  # MapServer → RDS
+  ingress {
+    description     = "PostgreSQL from MapServer"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.mapserver.id]
   }
 
   tags = {
@@ -211,15 +221,29 @@ resource "aws_vpc_endpoint" "s3" {
   }
 }
 
-resource "aws_ecr_repository" "processor" {
-  name                 = "geopipeline-processor"
+resource "aws_ecr_repository" "mapserver" {
+  name                 = "geopipeline-mapserver"
   image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
 
   image_scanning_configuration {
     scan_on_push = true
   }
+
+  force_delete = true
+
+  tags = {
+    Name = "geopipeline-mapserver"
+  }
+}
+resource "aws_ecr_repository" "processor" {
+  name                 = "geopipeline-processor"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  force_delete = true
 
   tags = {
     Name = "geopipeline-processor"
@@ -277,7 +301,11 @@ resource "aws_lambda_function" "processor" {
 
   role         = aws_iam_role.processor.arn
   package_type = "Image"
-  image_uri = "${aws_ecr_repository.processor.repository_url}:v2"
+  image_uri    = "${aws_ecr_repository.processor.repository_url}:v2"
+
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 
   timeout     = 60
   memory_size = 1024
@@ -342,6 +370,13 @@ resource "aws_security_group" "secrets_endpoint" {
     to_port         = 443
     protocol        = "tcp"
     security_groups = [aws_security_group.processor.id]
+  }
+  ingress {
+    description     = "HTTPS from MapServer"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.mapserver.id]
   }
 
   tags = {
@@ -426,7 +461,7 @@ resource "aws_iam_role" "github_actions" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:mahmood-khalaila/geopipeline:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:mahmood-khalaila@274218691/geopipeline@1381942348:ref:refs/heads/main"
         }
       }
     }]
@@ -490,4 +525,165 @@ resource "aws_iam_role_policy" "github_actions" {
 
 output "github_actions_role_arn" {
   value = aws_iam_role.github_actions.arn
+}
+
+resource "aws_security_group" "mapserver" {
+  name        = "geopipeline-mapserver-sg"
+  description = "Allow HTTP access to MapServer"
+  vpc_id      = aws_vpc.geopipeline.id
+
+  ingress {
+    description = "HTTP from internet"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "Allow outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "geopipeline-mapserver-sg"
+  }
+}
+
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+resource "aws_instance" "mapserver" {
+  ami           = data.aws_ami.amazon_linux.id
+  instance_type = "t3.micro"
+
+  subnet_id = aws_subnet.public_1.id
+
+  vpc_security_group_ids = [
+    aws_security_group.mapserver.id
+  ]
+
+  iam_instance_profile        = aws_iam_instance_profile.mapserver.name
+  user_data_replace_on_change = true
+
+  user_data = <<-EOF
+    #!/bin/bash
+    set -euo pipefail
+
+    # Install and start Docker
+    dnf install -y docker
+    systemctl enable --now docker
+
+    # Login to ECR
+    aws ecr get-login-password --region ${var.aws_region} \
+      | docker login --username AWS --password-stdin \
+      ${split("/", aws_ecr_repository.mapserver.repository_url)[0]}
+
+    # Pull MapServer image
+    docker pull ${aws_ecr_repository.mapserver.repository_url}:latest
+
+    # Get RDS credentials from Secrets Manager
+    SECRET=$(aws secretsmanager get-secret-value \
+      --secret-id ${aws_db_instance.geopipeline.master_user_secret[0].secret_arn} \
+      --region ${var.aws_region} \
+      --query SecretString \
+      --output text)
+
+    DB_USERNAME=$(echo "$SECRET" | python3 -c 'import sys,json; print(json.load(sys.stdin)["username"])')
+    DB_PASSWORD=$(echo "$SECRET" | python3 -c 'import sys,json; print(json.load(sys.stdin)["password"])')
+
+    # Create PostgreSQL service configuration
+    mkdir -p /opt/mapserver
+
+    printf '[geopipeline]\nhost=%s\nport=5432\ndbname=geopipeline\nuser=%s\npassword=%s\nsslmode=require\n' \
+      '${aws_db_instance.geopipeline.address}' \
+      "$DB_USERNAME" \
+      "$DB_PASSWORD" \
+      > /opt/mapserver/pg_service.conf
+
+    # MapServer container runs its Apache workers as www-data (UID 33).
+    # Keep the DB credentials readable only by root and that container user.
+    chown root:33 /opt/mapserver/pg_service.conf
+    chmod 640 /opt/mapserver/pg_service.conf
+
+    # Remove credentials from shell variables once the config is created
+    unset SECRET DB_USERNAME DB_PASSWORD
+
+    # Run MapServer
+    docker run -d \
+      --name mapserver \
+      --restart unless-stopped \
+      -p 80:80 \
+      -e PGSERVICEFILE=/etc/mapserver/pg_service.conf \
+      -e HOME=/tmp \
+      -v /opt/mapserver/pg_service.conf:/etc/mapserver/pg_service.conf:ro \
+      ${aws_ecr_repository.mapserver.repository_url}:latest
+  EOF
+
+  tags = {
+    Name = "geopipeline-mapserver"
+  }
+}
+
+resource "aws_iam_role" "mapserver" {
+  name = "geopipeline-mapserver-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+resource "aws_iam_role_policy" "mapserver_secrets" {
+  name = "geopipeline-mapserver-secrets"
+  role = aws_iam_role.mapserver.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "secretsmanager:GetSecretValue"
+      ]
+      Resource = aws_db_instance.geopipeline.master_user_secret[0].secret_arn
+    }]
+  })
+}
+resource "aws_iam_role_policy_attachment" "mapserver_ssm" {
+  role       = aws_iam_role.mapserver.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy_attachment" "mapserver_ecr" {
+  role       = aws_iam_role.mapserver.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_iam_instance_profile" "mapserver" {
+  name = "geopipeline-mapserver-profile"
+  role = aws_iam_role.mapserver.name
 }
