@@ -8,10 +8,16 @@ resource "aws_vpc" "geopipeline" {
   }
 }
 ################## add 4 subnets ###############################3
+# Get available AZs automatically based on the selected AWS Region
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+
 resource "aws_subnet" "public_1" {
   vpc_id                  = aws_vpc.geopipeline.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = "us-east-1a"
+  availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
   tags = {
@@ -19,10 +25,11 @@ resource "aws_subnet" "public_1" {
   }
 }
 
+
 resource "aws_subnet" "public_2" {
   vpc_id                  = aws_vpc.geopipeline.id
   cidr_block              = "10.0.2.0/24"
-  availability_zone       = "us-east-1b"
+  availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = true
 
   tags = {
@@ -30,20 +37,22 @@ resource "aws_subnet" "public_2" {
   }
 }
 
+
 resource "aws_subnet" "private_1" {
   vpc_id            = aws_vpc.geopipeline.id
   cidr_block        = "10.0.11.0/24"
-  availability_zone = "us-east-1a"
+  availability_zone = data.aws_availability_zones.available.names[0]
 
   tags = {
     Name = "geopipeline-private-1"
   }
 }
 
+
 resource "aws_subnet" "private_2" {
   vpc_id            = aws_vpc.geopipeline.id
   cidr_block        = "10.0.12.0/24"
-  availability_zone = "us-east-1b"
+  availability_zone = data.aws_availability_zones.available.names[1]
 
   tags = {
     Name = "geopipeline-private-2"
@@ -686,4 +695,69 @@ resource "aws_iam_role_policy_attachment" "mapserver_ecr" {
 resource "aws_iam_instance_profile" "mapserver" {
   name = "geopipeline-mapserver-profile"
   role = aws_iam_role.mapserver.name
+}
+
+
+resource "aws_s3_bucket" "iac_backup" {
+  bucket_prefix = "geopipeline-iac-"
+
+  tags = {
+    Name = "geopipeline-iac"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "iac_backup" {
+  bucket = aws_s3_bucket.iac_backup.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket" "docs" {
+  bucket_prefix = "geopipeline-docs-"
+
+  tags = {
+    Name = "geopipeline-docs"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "docs" {
+  bucket = aws_s3_bucket.docs.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_website_configuration" "docs" {
+  bucket = aws_s3_bucket.docs.id
+
+  index_document {
+    suffix = "half-pager.html"
+  }
+}
+
+resource "aws_s3_bucket_policy" "docs_public_read" {
+  bucket = aws_s3_bucket.docs.id
+
+  depends_on = [
+    aws_s3_bucket_public_access_block.docs
+  ]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Sid       = "PublicRead"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.docs.arn}/*"
+      }
+    ]
+  })
 }
